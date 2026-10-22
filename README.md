@@ -19,7 +19,7 @@ SaaSFoundry is a SaaS management application designed to help teams organize wor
 ## 🛠️ Tech Stack
 
 - **Frontend:** React, TypeScript, Vite
-- **Backend/API:** TypeScript
+- **Backend/API:** Firebase/TypeScript
 - **Data & Authentication:** Firebase Auth and Firestore (as specified in the project documentation)
 - **Deployment:** Vercel
 - **Testing:** Project test suite and documented test plan
@@ -93,9 +93,6 @@ SaaSFoundry/
 - Teams building subscription-based applications
 - Developers exploring multi-tenancy and SaaS architecture
 
-## 📄 License
-
-No license information has been confirmed here. Add a `LICENSE` file before specifying the project's license.
 
 ---
 
