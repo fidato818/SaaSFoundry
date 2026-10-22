@@ -77,3 +77,55 @@ export interface TestResult {
   details: string;
   timestamp: string;
 }
+
+// ----------------------------------------------------------------------------
+// AgentOps Output Validation Types
+// ----------------------------------------------------------------------------
+
+export type AgentRunStatus = 'success' | 'failed' | 'in_progress' | 'error' | 'completed';
+
+export interface AgentSampleRun {
+  runId: string;
+  agentId: string;
+  status: AgentRunStatus | string;
+  inputs: Record<string, any> | string;
+  outputs: Record<string, any> | string;
+  latencyMs?: number;
+  timestamp?: string;
+  metrics?: {
+    totalTokens?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    costUsd?: number;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
+export type ValidationErrorCode = 
+  | 'MISSING_FIELD' 
+  | 'INVALID_TYPE' 
+  | 'INVALID_VALUE' 
+  | 'INVALID_PAYLOAD';
+
+export interface ValidationError {
+  field: string;
+  message: string;
+  code: ValidationErrorCode;
+  expected?: string;
+  received?: string;
+}
+
+export interface ValidationDetails {
+  totalChecked: number;
+  passedCount: number;
+  errorCount: number;
+  timestamp: string;
+}
+
+export interface OutputValidationResult {
+  valid: boolean;
+  errors: ValidationError[];
+  summary: string;
+  details?: ValidationDetails;
+}

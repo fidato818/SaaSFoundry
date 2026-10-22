@@ -6,11 +6,11 @@
 import { User, Workspace, WorkspaceMember, Task, PlanConfig } from '../types';
 
 export const SEED_USERS: User[] = [
-  {
-    id: 'user_alex',
-    displayName: 'Alex Vance',
-    email: 'alex@saasfoundry.io',
-  },
+  // {
+  //   id: 'user_alex',
+  //   displayName: 'Alex Vance',
+  //   email: 'alex@saasfoundry.io',
+  // },
   {
     id: 'user_sarah',
     displayName: 'Sarah Chen',
@@ -25,6 +25,11 @@ export const SEED_USERS: User[] = [
     id: 'user_elena',
     displayName: 'Elena Rostova',
     email: 'elena.rostova@saasfoundry.io',
+  },
+  {
+    id: 'user_alex',
+    displayName: 'Adnan Ahmed',
+    email: 'adnan.ahmed@saasfoundry.io',
   },
 ];
 

@@ -3,7 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Task, Workspace, WorkspaceMember, User, TaskStatus, PlanTier, ApiError } from '../types';
+import { 
+  Task, 
+  Workspace, 
+  WorkspaceMember, 
+  User, 
+  TaskStatus, 
+  PlanTier, 
+  ApiError,
+  AgentSampleRun,
+  OutputValidationResult,
+  ValidationError,
+  AgentRunStatus
+} from '../types';
 import { SEED_USERS, SEED_WORKSPACES, SEED_MEMBERS, SEED_TASKS, PLAN_CONFIGS } from '../data/seedData';
 
 // Configurable API base URL as required
@@ -28,27 +40,35 @@ class ApiService {
   }
 
   private initStorage() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
 
-    if (!localStorage.getItem(STORAGE_KEYS.WORKSPACES)) {
-      localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(SEED_WORKSPACES));
-    }
-    if (!localStorage.getItem(STORAGE_KEYS.TASKS)) {
-      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(SEED_TASKS));
-    }
-    if (!localStorage.getItem(STORAGE_KEYS.MEMBERS)) {
-      localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify(SEED_MEMBERS));
-    }
-    const savedUserId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
-    if (savedUserId) {
-      this.currentUserId = savedUserId;
+    try {
+      if (!localStorage.getItem(STORAGE_KEYS.WORKSPACES)) {
+        localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(SEED_WORKSPACES));
+      }
+      if (!localStorage.getItem(STORAGE_KEYS.TASKS)) {
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(SEED_TASKS));
+      }
+      if (!localStorage.getItem(STORAGE_KEYS.MEMBERS)) {
+        localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify(SEED_MEMBERS));
+      }
+      const savedUserId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
+      if (savedUserId) {
+        this.currentUserId = savedUserId;
+      }
+    } catch {
+      // Graceful fallback for non-browser or sandboxed storage
     }
   }
 
   public resetToSeedData(): void {
-    localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(SEED_WORKSPACES));
-    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(SEED_TASKS));
-    localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify(SEED_MEMBERS));
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(SEED_WORKSPACES));
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(SEED_TASKS));
+        localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify(SEED_MEMBERS));
+      } catch {}
+    }
     this.currentUserId = 'user_alex';
     this.simulateFailure = 'none';
   }
@@ -63,7 +83,11 @@ class ApiService {
 
   public setCurrentUser(userId: string) {
     this.currentUserId = userId;
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, userId);
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, userId);
+      } catch {}
+    }
   }
 
   public getCurrentUser(): User | null {
@@ -124,6 +148,7 @@ class ApiService {
 
   private getRawWorkspaces(): Workspace[] {
     try {
+      if (typeof localStorage === 'undefined') return SEED_WORKSPACES;
       return JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKSPACES) || '[]');
     } catch {
       return SEED_WORKSPACES;
@@ -131,11 +156,16 @@ class ApiService {
   }
 
   private setRawWorkspaces(workspaces: Workspace[]): void {
-    localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaces));
+      } catch {}
+    }
   }
 
   private getRawTasks(): Task[] {
     try {
+      if (typeof localStorage === 'undefined') return SEED_TASKS;
       return JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]');
     } catch {
       return SEED_TASKS;
@@ -143,11 +173,16 @@ class ApiService {
   }
 
   private setRawTasks(tasks: Task[]): void {
-    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      } catch {}
+    }
   }
 
   private getRawMembers(): WorkspaceMember[] {
     try {
+      if (typeof localStorage === 'undefined') return SEED_MEMBERS;
       return JSON.parse(localStorage.getItem(STORAGE_KEYS.MEMBERS) || '[]');
     } catch {
       return SEED_MEMBERS;
@@ -155,7 +190,11 @@ class ApiService {
   }
 
   private setRawMembers(members: WorkspaceMember[]): void {
-    localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify(members));
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify(members));
+      } catch {}
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -373,6 +412,282 @@ class ApiService {
     this.setRawTasks(tasks);
 
     return task;
+  }
+
+  // --------------------------------------------------------------------------
+  // AgentOps Output Validation Endpoint (POST /runs/validate)
+  // --------------------------------------------------------------------------
+
+  /**
+   * POST /api/v1/runs/validate
+   * Validates a structured AgentOps sample run output.
+   * Checks required fields (runId, agentId, status, inputs, outputs) and data types.
+   * Returns a predictable result with valid, errors, summary, and details.
+   * Handles simulated errors (500 server error, 401 unauthenticated).
+   */
+  public async validateOutput(sampleRun: any): Promise<OutputValidationResult> {
+    await this.networkLatency(60);
+    this.checkSimulatedErrors();
+
+    const errors: ValidationError[] = [];
+    let totalChecked = 0;
+
+    // 1. Root payload structure check
+    if (!sampleRun || typeof sampleRun !== 'object' || Array.isArray(sampleRun)) {
+      const receivedType = sampleRun === null ? 'null' : Array.isArray(sampleRun) ? 'array' : typeof sampleRun;
+      errors.push({
+        field: 'payload',
+        message: `Invalid input: Expected a JSON object payload, received ${receivedType}`,
+        code: 'INVALID_PAYLOAD',
+        expected: 'object',
+        received: receivedType,
+      });
+
+      return {
+        valid: false,
+        errors,
+        summary: `Validation failed: Root payload must be a JSON object, received ${receivedType}.`,
+        details: {
+          totalChecked: 1,
+          passedCount: 0,
+          errorCount: 1,
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+
+    // 2. Validate runId (required, non-empty string)
+    totalChecked++;
+    if (sampleRun.runId === undefined || sampleRun.runId === null) {
+      errors.push({
+        field: 'runId',
+        message: "Missing required field: 'runId'",
+        code: 'MISSING_FIELD',
+        expected: 'string',
+        received: sampleRun.runId === null ? 'null' : 'undefined',
+      });
+    } else if (typeof sampleRun.runId !== 'string') {
+      errors.push({
+        field: 'runId',
+        message: `Invalid data type for 'runId': expected string, received ${typeof sampleRun.runId}`,
+        code: 'INVALID_TYPE',
+        expected: 'string',
+        received: typeof sampleRun.runId,
+      });
+    } else if (sampleRun.runId.trim().length === 0) {
+      errors.push({
+        field: 'runId',
+        message: "Invalid value for 'runId': string must not be empty",
+        code: 'INVALID_VALUE',
+        expected: 'non-empty string',
+        received: 'empty string',
+      });
+    }
+
+    // 3. Validate agentId (required, non-empty string)
+    totalChecked++;
+    if (sampleRun.agentId === undefined || sampleRun.agentId === null) {
+      errors.push({
+        field: 'agentId',
+        message: "Missing required field: 'agentId'",
+        code: 'MISSING_FIELD',
+        expected: 'string',
+        received: sampleRun.agentId === null ? 'null' : 'undefined',
+      });
+    } else if (typeof sampleRun.agentId !== 'string') {
+      errors.push({
+        field: 'agentId',
+        message: `Invalid data type for 'agentId': expected string, received ${typeof sampleRun.agentId}`,
+        code: 'INVALID_TYPE',
+        expected: 'string',
+        received: typeof sampleRun.agentId,
+      });
+    } else if (sampleRun.agentId.trim().length === 0) {
+      errors.push({
+        field: 'agentId',
+        message: "Invalid value for 'agentId': string must not be empty",
+        code: 'INVALID_VALUE',
+        expected: 'non-empty string',
+        received: 'empty string',
+      });
+    }
+
+    // 4. Validate status (required, enum string)
+    totalChecked++;
+    const allowedStatuses: AgentRunStatus[] = ['success', 'failed', 'in_progress', 'error', 'completed'];
+    if (sampleRun.status === undefined || sampleRun.status === null) {
+      errors.push({
+        field: 'status',
+        message: "Missing required field: 'status'",
+        code: 'MISSING_FIELD',
+        expected: `one of [${allowedStatuses.join(', ')}]`,
+        received: sampleRun.status === null ? 'null' : 'undefined',
+      });
+    } else if (typeof sampleRun.status !== 'string') {
+      errors.push({
+        field: 'status',
+        message: `Invalid data type for 'status': expected string, received ${typeof sampleRun.status}`,
+        code: 'INVALID_TYPE',
+        expected: 'string',
+        received: typeof sampleRun.status,
+      });
+    } else if (!allowedStatuses.includes(sampleRun.status as AgentRunStatus)) {
+      errors.push({
+        field: 'status',
+        message: `Invalid value for 'status': '${sampleRun.status}'. Expected one of: ${allowedStatuses.join(', ')}`,
+        code: 'INVALID_VALUE',
+        expected: allowedStatuses.join(' | '),
+        received: String(sampleRun.status),
+      });
+    }
+
+    // 5. Validate inputs (required, object or non-empty string)
+    totalChecked++;
+    if (sampleRun.inputs === undefined || sampleRun.inputs === null) {
+      errors.push({
+        field: 'inputs',
+        message: "Missing required field: 'inputs'",
+        code: 'MISSING_FIELD',
+        expected: 'object or string',
+        received: sampleRun.inputs === null ? 'null' : 'undefined',
+      });
+    } else if (typeof sampleRun.inputs !== 'object' && typeof sampleRun.inputs !== 'string') {
+      errors.push({
+        field: 'inputs',
+        message: `Invalid data type for 'inputs': expected object or string, received ${typeof sampleRun.inputs}`,
+        code: 'INVALID_TYPE',
+        expected: 'object | string',
+        received: typeof sampleRun.inputs,
+      });
+    } else if (typeof sampleRun.inputs === 'string' && sampleRun.inputs.trim().length === 0) {
+      errors.push({
+        field: 'inputs',
+        message: "Invalid value for 'inputs': string must not be empty",
+        code: 'INVALID_VALUE',
+        expected: 'non-empty string or object',
+        received: 'empty string',
+      });
+    }
+
+    // 6. Validate outputs (required, object or non-empty string)
+    totalChecked++;
+    if (sampleRun.outputs === undefined || sampleRun.outputs === null) {
+      errors.push({
+        field: 'outputs',
+        message: "Missing required field: 'outputs'",
+        code: 'MISSING_FIELD',
+        expected: 'object or string',
+        received: sampleRun.outputs === null ? 'null' : 'undefined',
+      });
+    } else if (typeof sampleRun.outputs !== 'object' && typeof sampleRun.outputs !== 'string') {
+      errors.push({
+        field: 'outputs',
+        message: `Invalid data type for 'outputs': expected object or string, received ${typeof sampleRun.outputs}`,
+        code: 'INVALID_TYPE',
+        expected: 'object | string',
+        received: typeof sampleRun.outputs,
+      });
+    } else if (typeof sampleRun.outputs === 'string' && sampleRun.outputs.trim().length === 0) {
+      errors.push({
+        field: 'outputs',
+        message: "Invalid value for 'outputs': string must not be empty",
+        code: 'INVALID_VALUE',
+        expected: 'non-empty string or object',
+        received: 'empty string',
+      });
+    }
+
+    // 7. Optional field: latencyMs (must be number >= 0 if provided)
+    if (sampleRun.latencyMs !== undefined && sampleRun.latencyMs !== null) {
+      totalChecked++;
+      if (typeof sampleRun.latencyMs !== 'number' || isNaN(sampleRun.latencyMs)) {
+        errors.push({
+          field: 'latencyMs',
+          message: `Invalid data type for 'latencyMs': expected number, received ${typeof sampleRun.latencyMs}`,
+          code: 'INVALID_TYPE',
+          expected: 'number',
+          received: typeof sampleRun.latencyMs,
+        });
+      } else if (sampleRun.latencyMs < 0) {
+        errors.push({
+          field: 'latencyMs',
+          message: `Invalid value for 'latencyMs': must be a non-negative number, received ${sampleRun.latencyMs}`,
+          code: 'INVALID_VALUE',
+          expected: 'number >= 0',
+          received: String(sampleRun.latencyMs),
+        });
+      }
+    }
+
+    // 8. Optional field: timestamp (must be valid ISO date string if provided)
+    if (sampleRun.timestamp !== undefined && sampleRun.timestamp !== null) {
+      totalChecked++;
+      if (typeof sampleRun.timestamp !== 'string') {
+        errors.push({
+          field: 'timestamp',
+          message: `Invalid data type for 'timestamp': expected ISO date string, received ${typeof sampleRun.timestamp}`,
+          code: 'INVALID_TYPE',
+          expected: 'string',
+          received: typeof sampleRun.timestamp,
+        });
+      } else if (isNaN(Date.parse(sampleRun.timestamp))) {
+        errors.push({
+          field: 'timestamp',
+          message: `Invalid value for 'timestamp': '${sampleRun.timestamp}' is not a valid date format`,
+          code: 'INVALID_VALUE',
+          expected: 'ISO 8601 date string',
+          received: sampleRun.timestamp,
+        });
+      }
+    }
+
+    // 9. Optional field: metrics (must be an object with valid sub-properties if provided)
+    if (sampleRun.metrics !== undefined && sampleRun.metrics !== null) {
+      totalChecked++;
+      if (typeof sampleRun.metrics !== 'object' || Array.isArray(sampleRun.metrics)) {
+        errors.push({
+          field: 'metrics',
+          message: `Invalid data type for 'metrics': expected object, received ${Array.isArray(sampleRun.metrics) ? 'array' : typeof sampleRun.metrics}`,
+          code: 'INVALID_TYPE',
+          expected: 'object',
+          received: Array.isArray(sampleRun.metrics) ? 'array' : typeof sampleRun.metrics,
+        });
+      } else if (
+        sampleRun.metrics.totalTokens !== undefined &&
+        (typeof sampleRun.metrics.totalTokens !== 'number' || sampleRun.metrics.totalTokens < 0)
+      ) {
+        errors.push({
+          field: 'metrics.totalTokens',
+          message: `Invalid data type for 'metrics.totalTokens': expected non-negative number, received ${sampleRun.metrics.totalTokens}`,
+          code: 'INVALID_TYPE',
+          expected: 'number >= 0',
+          received: String(sampleRun.metrics.totalTokens),
+        });
+      }
+    }
+
+    const isValid = errors.length === 0;
+    const passedCount = totalChecked - errors.length;
+
+    let summary = '';
+    if (isValid) {
+      summary = `Validation passed: All ${totalChecked} checked fields and data types match the AgentOps run specification.`;
+    } else {
+      const errorFieldNames = errors.map(e => `'${e.field}'`).join(', ');
+      summary = `Validation failed with ${errors.length} error(s) across ${totalChecked} checked fields (${errorFieldNames}).`;
+    }
+
+    return {
+      valid: isValid,
+      errors,
+      summary,
+      details: {
+        totalChecked,
+        passedCount: Math.max(0, passedCount),
+        errorCount: errors.length,
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
 
   // --------------------------------------------------------------------------

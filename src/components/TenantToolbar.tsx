@@ -98,7 +98,7 @@ export const TenantToolbar: React.FC<TenantToolbarProps> = ({
               onChange={(e) => onSelectUser(e.target.value)}
               className="bg-white text-slate-800 border border-slate-200 rounded-md px-2 py-1 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-slate-900 shadow-2xs"
             >
-              <option value="user_alex">Alex (Owner)</option>
+              <option value="user_alex">Adnan (Owner)</option>
               <option value="user_sarah">Sarah (Member)</option>
               <option value="user_marcus">Marcus (Member)</option>
               <option value="none">Signed Out (Test 401)</option>
