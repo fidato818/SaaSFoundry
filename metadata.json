@@ -1,0 +1,6 @@
+{
+  "name": "SaaSFoundry — Multi-Tenant SaaS Starter",
+  "description": "Production-ready multi-tenant SaaS starter with isolated workspaces, role-based access control, task workflows, subscription tiers, and API contract compliance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
